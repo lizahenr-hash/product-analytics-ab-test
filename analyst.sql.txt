@@ -1,0 +1,72 @@
+-- Product Analytics: Cookie Cats A/B Test
+-- Database: PostgreSQL
+-- Dataset: 90,189 players
+-- Control group: gate_30
+-- Test group: gate_40
+
+
+-- 1. Compare experiment groups
+SELECT
+    version,
+    COUNT(*) AS users,
+    ROUND(AVG(retention_1::int) * 100, 2) AS d1_retention_pct,
+    ROUND(AVG(retention_7::int) * 100, 2) AS d7_retention_pct,
+    ROUND(AVG(sum_gamerounds), 2) AS avg_game_rounds
+FROM public.cookie_cats
+GROUP BY version
+ORDER BY version;
+
+
+-- 2. Calculate differences between test and control groups
+WITH group_metrics AS (
+    SELECT
+        version,
+        AVG(retention_1::int) * 100 AS d1_retention,
+        AVG(retention_7::int) * 100 AS d7_retention,
+        AVG(sum_gamerounds) AS avg_rounds
+    FROM public.cookie_cats
+    GROUP BY version
+)
+SELECT
+    ROUND(
+        MAX(d1_retention) FILTER (WHERE version = 'gate_40') -
+        MAX(d1_retention) FILTER (WHERE version = 'gate_30'),
+        2
+    ) AS d1_difference_pp,
+    ROUND(
+        MAX(d7_retention) FILTER (WHERE version = 'gate_40') -
+        MAX(d7_retention) FILTER (WHERE version = 'gate_30'),
+        2
+    ) AS d7_difference_pp,
+    ROUND(
+        MAX(avg_rounds) FILTER (WHERE version = 'gate_40') -
+        MAX(avg_rounds) FILTER (WHERE version = 'gate_30'),
+        2
+    ) AS avg_rounds_difference
+FROM group_metrics;
+
+
+-- 3. Analyze player activity segments
+SELECT
+    version,
+    CASE
+        WHEN sum_gamerounds = 0 THEN '0 rounds'
+        WHEN sum_gamerounds BETWEEN 1 AND 10 THEN '1-10 rounds'
+        WHEN sum_gamerounds BETWEEN 11 AND 50 THEN '11-50 rounds'
+        ELSE '50+ rounds'
+    END AS activity_segment,
+    COUNT(*) AS users,
+    ROUND(AVG(retention_7::int) * 100, 2) AS d7_retention_pct
+FROM public.cookie_cats
+GROUP BY version, activity_segment
+ORDER BY version, activity_segment;
+
+
+-- 4. Check data quality
+SELECT
+    COUNT(*) AS total_rows,
+    COUNT(DISTINCT userid) AS unique_users,
+    COUNT(*) FILTER (WHERE retention_1 IS NULL) AS missing_d1,
+    COUNT(*) FILTER (WHERE retention_7 IS NULL) AS missing_d7,
+    COUNT(*) FILTER (WHERE sum_gamerounds < 0) AS negative_rounds
+FROM public.cookie_cats;
